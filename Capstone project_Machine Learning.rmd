@@ -1,0 +1,195 @@
+---
+title: "Capstone project - Machine Learning"
+author: "Pramil Jain"
+date: "February 7, 2017"
+output: html_document
+---
+
+# Problem statement - 
+#1) The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set.You may use any of the other variables to predict with.
+#2) You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. 
+
+#Soultion
+
+#loading the testing and training data set
+
+```{r}
+
+set.seed(100)
+
+library(caret)
+
+raw_train <- read.csv("pml-training.csv",na.strings=c("NA","#DIV/0!",""))
+test <- read.csv("pml-testing.csv",na.strings=c("NA","#DIV/0!",""))
+
+inTrain <- createDataPartition(raw_train$classe, p=0.5, list=FALSE)
+train <- raw_train[inTrain, ]
+validate <- raw_train[-inTrain, ]
+
+dim(train)
+
+```
+
+#Data cleansing 
+
+```{r}
+
+
+# identify variables with more than 50% entries as NA
+
+remove <- as.vector(NULL)
+for(i in 1:length(train)) {
+    if( sum( is.na( train[, i] ) ) /nrow(train) >= .5) {
+        remove <- c(remove,i)
+        } 
+    }
+
+# Remove above identified variables from all the four data sets
+# Aslo, remove the first column from these data sets
+
+train <- train[,-c(remove,1)]
+validate <- validate[,-c(remove,1)]
+test <- test[,-c(remove,1)]
+
+dim(train)
+dim(test)
+dim(validate)
+
+# Remove the classe/ problem_id column from validate and test data set
+
+clean1 <- colnames(train)
+clean2 <- colnames(train[, -59])  # remove the classe column
+validate <- validate[clean1]         # allow only variables in myTesting that are also in myTraining
+test <- test[clean2]
+
+# Make sure test data have variables in same format as train data
+
+for (i in 1:length(test) ) {
+    for(j in 1:length(train)) {
+        if( length( grep(names(train[i]), names(test)[j]) ) == 1)  {
+            class(test[j]) <- class(train[i])
+        }      
+    }      
+}
+
+# To get the same class between testing and myTraining
+test <- rbind(train[2, -59] , test)
+test <- test[-1,]
+
+
+```
+
+#Prediction with the decision trees 
+
+```{r}
+
+library(rpart)
+library(rpart.plot)
+library(rattle)
+
+model1 <- rpart(classe ~ ., data=train, method="class")
+fancyRpartPlot(model1)
+
+predict1 <- predict(model1,validate,type = "class")
+conf_mat1 <- confusionMatrix(predict1,validate$classe)
+conf_mat1
+
+Results <- matrix(0,nrow=10,ncol=7)
+colnames(Results) <- c("Method", "Accuracy_A", "Accuracy_B", "Accuracy_C", "Accuracy_D", 
+                     "Accuracy_E", "Accuracy_Overall")
+
+Results[1,] <- c("Decision Tree",scales::percent(conf_mat1$byClass[1,11]),scales::percent(conf_mat1$byClass[2,11]),scales::percent(conf_mat1$byClass[3,11]),scales::percent(conf_mat1$byClass[4,11]),scales::percent(conf_mat1$byClass[5,11]),scales::percent(conf_mat1$overall[1]))
+
+Results
+
+```
+
+#We should test Random Forest and Generalized Boosting Regression to get better accuracies 
+#Prediction with Random Forest 
+
+```{r}
+
+library(randomForest)
+
+model2 <- randomForest(classe ~ ., data=train)
+
+predict2 <- predict(model2, validate, type = "class")
+conf_mat2 <- confusionMatrix(predict2,validate$classe)
+conf_mat2
+
+Results[2,] <- c("Random Forest",scales::percent(conf_mat2$byClass[1,11]),scales::percent(conf_mat2$byClass[2,11]),scales::percent(conf_mat2$byClass[3,11]),scales::percent(conf_mat2$byClass[4,11]),scales::percent(conf_mat2$byClass[5,11]),scales::percent(conf_mat2$overall[1]))
+
+Results
+
+plot(model2)
+
+```
+
+# Through Random Forest We have very high accuracy rates (99.9%), but we should still test Boosting as well
+# Prediction with Generalized Boosted Regression 
+
+```{r}
+
+library(gbm)
+
+set.seed(100)
+
+fitControl <- trainControl(method = "repeatedcv",
+                           number = 5,
+                           repeats = 1)
+
+gbm <- train(classe ~ ., data=train, method = "gbm",
+                 trControl = fitControl,
+                 verbose = FALSE)
+
+
+model3 <- gbm$finalModel
+
+predict3 <- predict(gbm, newdata=validate)
+conf_mat3 <- confusionMatrix(predict3, validate$classe)
+conf_mat3
+
+
+Results[3,] <- c("GMB",scales::percent(conf_mat3$byClass[1,11]),scales::percent(conf_mat3$byClass[2,11]),scales::percent(conf_mat3$byClass[3,11]),scales::percent(conf_mat3$byClass[4,11]),scales::percent(conf_mat3$byClass[5,11]),scales::percent(conf_mat3$overall[1]))
+
+Results
+
+# we have better overall accuracies with "Random Forest" approach, will use this for final predictions
+
+Results <- Results[1:3,]
+
+```
+
+# Random Forests gave an Accuracy in the validate dataset of 99.94%, which was more accurate that what I got from the Decision Trees or GBM. The expected out-of-sample error is 100-99.94 = 0.06%.
+
+
+#Prediction with Random Forest 
+
+```{r}
+
+predict_final <- predict(model2, test, type = "class")
+predict_final
+
+```
+
+#Create a txt file with predictions
+
+
+```{r}
+
+write_file = function(x){
+    n = length(x)
+    for(i in 1:n){
+        filename = paste0("problem_id_",i,".txt")
+        write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+    }
+}
+
+write_files(predict_final)
+
+```
+
+
+
+
+
